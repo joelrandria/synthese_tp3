@@ -50,11 +50,13 @@ mini_gl3core*
 mini_vertex*
 out.png
 README.md
-screenshot.png
+raytracing*.png
+screenshot*.png
 shader_kit*
 tessellation*
 tp1*
 tp2*
+tp3
 tutorial*
 *.ttf
 
