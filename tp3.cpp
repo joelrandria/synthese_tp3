@@ -35,10 +35,10 @@ void loadScene()
   _mesh = loadMesh("scene/geometry.obj");
 
   triangleCount = _mesh->triangleCount();
-  colorDelta = (float)1 / triangleCount;
+  colorDelta = 0.25f / triangleCount;
 
   for (i = 0; i < triangleCount; ++i)
-    _triangleColors.push_back(gk::Vec4(i * colorDelta, i * colorDelta, 0, 1));
+    _triangleColors.push_back(gk::Vec4(0.5f + (i * colorDelta), 0.5f + (i * colorDelta), 0, 1));
 }
 void deleteScene()
 {
@@ -123,10 +123,10 @@ int main(int, char**)
   outputImage = gk::createImage(outputImageWidth, outputImageHeight);
 
   cameraUp = gk::Vector(0, 1, 0);
-  cameraPosition = gk::Point(-500, 1500, 1000);
+  cameraPosition = gk::Point(-250, 750, 500);
 
   v = gk::LookAt(cameraPosition, gk::Point(0, 0, 0), cameraUp);
-  p = gk::Perspective(60, outputImageWidth / outputImageHeight, 1, 1000);
+  p = gk::Perspective(60, outputImageWidth / outputImageHeight, 1, 4000);
   i = gk::Viewport(outputImageWidth, outputImageHeight);
   vpiInv = (i * p * v).inverse();
 
@@ -149,7 +149,7 @@ int main(int, char**)
       rayWorldLength = gk::Distance(rayWorldOrigin, rayWorldDestination);
 
       rayWorld = gk::Ray(rayWorldOrigin, gk::Vector(rayWorldOrigin, rayWorldDestination) / rayWorldLength);
-      rayWorld.tmax = rayWorldLength * 2;
+      rayWorld.tmax = rayWorldLength;
 
       outputImage->setPixel(x, y, raytrace(rayWorld));
     }
