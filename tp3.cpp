@@ -8,6 +8,8 @@
 #include <string>
 #include <stdio.h>
 
+
+
 //! Ressources
 gk::Mesh* loadMesh(const std::string& filename)
 {
