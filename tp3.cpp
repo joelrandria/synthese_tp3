@@ -65,7 +65,7 @@ bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, unsigned int& triang
 
   for (i = 0; i < triangleCount; ++i)
   {
-    if (mesh.triangle(i).Intersect(ray, 10000, rt, ru, rv))
+    if (mesh.triangle(i).Intersect(ray, ray.tmax, rt, ru, rv))
     {
       if (minrt < 0)
 	minrt = rt;
@@ -111,6 +111,8 @@ int main(int, char**)
   gk::Transform vpiInv;
 
   gk::Ray rayWorld;
+  float rayWorldLength;
+
   gk::Point rayImageOrigin;
   gk::Point rayImageDestination;
   gk::Point rayWorldOrigin;
@@ -144,7 +146,10 @@ int main(int, char**)
       rayWorldOrigin = vpiInv(rayImageOrigin);
       rayWorldDestination = vpiInv(rayImageDestination);
 
-      rayWorld = gk::Ray(rayWorldOrigin, rayWorldDestination);
+      rayWorldLength = gk::Distance(rayWorldOrigin, rayWorldDestination);
+
+      rayWorld = gk::Ray(rayWorldOrigin, gk::Vector(rayWorldOrigin, rayWorldDestination) / rayWorldLength);
+      rayWorld.tmax = rayWorldLength * 2;
 
       outputImage->setPixel(x, y, raytrace(rayWorld));
     }
