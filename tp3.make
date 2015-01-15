@@ -26,7 +26,7 @@ ifeq ($(config),debug)
   DEFINES   += -DGK_OPENGL3 -DVERBOSE -DDEBUG
   INCLUDES  += -I. -IgKit
   CPPFLAGS  += -MMD -MP $(DEFINES) $(INCLUDES)
-  CFLAGS    += $(CPPFLAGS) $(ARCH) -g -mtune=native -W -Wall -Wno-unused-parameter -pipe -mtune=native -Og
+  CFLAGS    += $(CPPFLAGS) $(ARCH) -g -mtune=native -W -Wall -Wno-unused-parameter -pipe
   CXXFLAGS  += $(CFLAGS) 
   LDFLAGS   += 
   LIBS      += -lGLEW -lSDL2 -lSDL2_image -lSDL2_ttf -lGL

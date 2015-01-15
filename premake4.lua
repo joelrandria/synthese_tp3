@@ -62,7 +62,7 @@ solution "TP"
 			buildoptions { "-mtune=native -O3" }
 			
 		configuration { "linux", "debug" }
-			buildoptions { "-mtune=native -Og" }
+			buildoptions { "-mtune=native" }
 
 		configuration "windows"
 			includedirs { "local/windows/include" }
@@ -92,8 +92,9 @@ local project_files = {
 	"tutorial2",
 	"tutorial3",
 	"tutorial4",
-        "tutorial5",
-        "tutorial6",
+	"tutorial5",
+	"tutorial6",
+	"tuto_ray1",
 	"mini_gkit2",
 	"image_viewer",
 	"mesh_viewer",

@@ -8,7 +8,8 @@
 #include <string>
 #include <stdio.h>
 
-
+gk::Mesh* _mesh;
+std::vector<gk::Vec4> _triangleColors;
 
 //! Ressources
 gk::Mesh* loadMesh(const std::string& filename)
@@ -24,50 +25,72 @@ gk::Mesh* loadMesh(const std::string& filename)
 
   return mesh;
 }
-void loadScene(std::vector<gk::Mesh*>& meshes)
-{
-  meshes.push_back(loadMesh("scene/geometry.obj"));
-}
-void deleteScene(std::vector<gk::Mesh*>& meshes)
-{
-  uint i;
-
-  for (i = 0; i < meshes.size(); ++i)
-    delete meshes[i];
-}
-
-//! Raytracing
-bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, gk::Hit& hit)
+void loadScene()
 {
   int i;
   int triangleCount;
+
+  float colorDelta;
+
+  _mesh = loadMesh("scene/geometry.obj");
+
+  triangleCount = _mesh->triangleCount();
+  colorDelta = (float)1 / triangleCount;
+
+  for (i = 0; i < triangleCount; ++i)
+    _triangleColors.push_back(gk::Vec4(i * colorDelta, i * colorDelta, 0, 1));
+}
+void deleteScene()
+{
+  delete _mesh;
+}
+
+//! Raytracing
+bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, unsigned int& triangleId, gk::Hit& hit)
+{
+  int i;
+  int triangleCount;
+
+  bool intersect;
 
   float rt;
   float ru;
   float rv;
 
+  float minrt;
+
+  minrt = -1;
+  intersect = false;
   triangleCount = mesh.triangleCount();
 
   for (i = 0; i < triangleCount; ++i)
   {
     if (mesh.triangle(i).Intersect(ray, 10000, rt, ru, rv))
-      return true;
+    {
+      if (minrt < 0)
+	minrt = rt;
+
+      if (rt <= minrt)
+      {
+	minrt = rt;
+	triangleId = i;
+	intersect = true;
+      }
+    }
   }
 
-  return false;
+  return intersect;
 }
 
-gk::VecColor raytrace(const gk::Ray& ray, const std::vector<gk::Mesh*>& meshes)
+gk::Vec4 raytrace(const gk::Ray& ray)
 {
-  uint i;
-
   gk::Hit hit;
+  uint triangleId;
 
-  for (i = 0; i < meshes.size(); ++i)
-    if (intersection(ray, *meshes[i], hit))
-      return (gk::VecColor(1, 1, 1));
+  if (intersection(ray, *_mesh, triangleId, hit))
+    return (_triangleColors[triangleId]);
 
-  return gk::VecColor(0, 0, 0);
+  return gk::Vec4(0, 0, 0, 1);
 }
 
 int main(int, char**)
@@ -75,11 +98,9 @@ int main(int, char**)
   int x;
   int y;
 
-  std::vector<gk::Mesh*> meshes;
-
   gk::Image* outputImage;
-  const int outputImageWidth = 1400;
-  const int outputImageHeight = 1000;
+  const int outputImageWidth = 1024;
+  const int outputImageHeight = 768;
 
   gk::Vector cameraUp;
   gk::Point cameraPosition;
@@ -95,7 +116,7 @@ int main(int, char**)
   gk::Point rayWorldOrigin;
   gk::Point rayWorldDestination;
 
-  loadScene(meshes);
+  loadScene();
 
   outputImage = gk::createImage(outputImageWidth, outputImageHeight);
 
@@ -125,14 +146,14 @@ int main(int, char**)
 
       rayWorld = gk::Ray(rayWorldOrigin, rayWorldDestination);
 
-      outputImage->setPixel(x, y, raytrace(rayWorld, meshes));
+      outputImage->setPixel(x, y, raytrace(rayWorld));
     }
   }
 
   gk::ImageIO::writeImage("raytracing.png", outputImage);
   delete outputImage;
 
-  deleteScene(meshes);
+  deleteScene();
 
   return 0;
 }
