@@ -10,6 +10,7 @@
 
 gk::Mesh* _mesh;
 std::vector<gk::Vec4> _triangleColors;
+std::vector<gk::Triangle> _lights;
 
 //! Ressources
 gk::Mesh* loadMesh(const std::string& filename)
@@ -38,7 +39,13 @@ void loadScene()
   colorDelta = 0.25f / triangleCount;
 
   for (i = 0; i < triangleCount; ++i)
+  {
     _triangleColors.push_back(gk::Vec4(0.5f + (i * colorDelta), 0.5f + (i * colorDelta), 0, 1));
+
+    if (!(_mesh->triangleMaterial((uint)i).emission == gk::Vec4(0, 0, 0, 0)))
+      _lights.push_back(_mesh->triangle((uint)i));
+  }
+
 }
 void deleteScene()
 {
@@ -46,18 +53,18 @@ void deleteScene()
 }
 
 //! Raytracing
-bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, unsigned int& triangleId, gk::Hit& hit)
+// gk::Point pickLightSource()
+// {
+  
+// }
+
+bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, gk::Hit& hit)
 {
   int i;
   int triangleCount;
 
-  bool intersect;
-
-  float rt;
-  float ru;
-  float rv;
-
   float minrt;
+  bool intersect;
 
   minrt = -1;
   intersect = false;
@@ -65,15 +72,15 @@ bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, unsigned int& triang
 
   for (i = 0; i < triangleCount; ++i)
   {
-    if (mesh.triangle(i).Intersect(ray, ray.tmax, rt, ru, rv))
+    if (mesh.triangle(i).Intersect(ray, ray.tmax, hit.t, hit.u, hit.v))
     {
       if (minrt < 0)
-	minrt = rt;
+	minrt = hit.t;
 
-      if (rt <= minrt)
+      if (hit.t <= minrt)
       {
-	minrt = rt;
-	triangleId = i;
+	minrt = hit.t;
+	hit.object_id = i;
 	intersect = true;
       }
     }
@@ -82,13 +89,13 @@ bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, unsigned int& triang
   return intersect;
 }
 
-gk::Vec4 raytrace(const gk::Ray& ray)
+gk::Vec4 incidentLight(const gk::Ray& ray)
 {
   gk::Hit hit;
-  uint triangleId;
+  gk::Point lightSource;
 
-  if (intersection(ray, *_mesh, triangleId, hit))
-    return (_triangleColors[triangleId]);
+  if (intersection(ray, *_mesh, hit))
+    return _triangleColors[hit.object_id];
 
   return gk::Vec4(0, 0, 0, 1);
 }
@@ -151,7 +158,7 @@ int main(int, char**)
       rayWorld = gk::Ray(rayWorldOrigin, gk::Vector(rayWorldOrigin, rayWorldDestination) / rayWorldLength);
       rayWorld.tmax = rayWorldLength;
 
-      outputImage->setPixel(x, y, raytrace(rayWorld));
+      outputImage->setPixel(x, y, incidentLight(rayWorld));
     }
   }
 
