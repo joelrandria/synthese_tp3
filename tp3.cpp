@@ -12,7 +12,7 @@ gk::Mesh* _mesh;
 std::vector<gk::Vec4> _triangleColors;
 std::vector<gk::Triangle> _lights;
 
-//! Ressources
+//! Resources
 gk::Mesh* loadMesh(const std::string& filename)
 {
   gk::Mesh* mesh;
@@ -26,6 +26,7 @@ gk::Mesh* loadMesh(const std::string& filename)
 
   return mesh;
 }
+
 void loadScene()
 {
   int i;
@@ -33,7 +34,7 @@ void loadScene()
 
   float colorDelta;
 
-  _mesh = loadMesh("scene/geometry.obj");
+  _mesh = loadMesh("synthese_tp3/scenes/geometry.obj");
 
   triangleCount = _mesh->triangleCount();
   colorDelta = 0.25f / triangleCount;
@@ -45,7 +46,6 @@ void loadScene()
     if (!(_mesh->triangleMaterial((uint)i).emission == gk::Vec4(0, 0, 0, 0)))
       _lights.push_back(_mesh->triangle((uint)i));
   }
-
 }
 void deleteScene()
 {
@@ -55,7 +55,7 @@ void deleteScene()
 //! Raytracing
 // gk::Point pickLightSource()
 // {
-  
+
 // }
 
 bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, gk::Hit& hit)
@@ -89,10 +89,13 @@ bool intersection(const gk::Ray& ray, const gk::Mesh& mesh, gk::Hit& hit)
   return intersect;
 }
 
-gk::Vec4 incidentLight(const gk::Ray& ray)
+gk::Vec4 incidentLight(const gk::Point& p, const gk::Vector& d, const float tmax = HUGE_VAL)
 {
+  gk::Ray ray;
   gk::Hit hit;
-  gk::Point lightSource;
+
+  ray = gk::Ray(p + d * RAY_EPSILON, d);
+  ray.tmax = tmax;
 
   if (intersection(ray, *_mesh, hit))
     return _triangleColors[hit.object_id];
@@ -117,13 +120,11 @@ int main(int, char**)
   gk::Transform i;
   gk::Transform vpiInv;
 
-  gk::Ray rayWorld;
-  float rayWorldLength;
+  gk::Point imageOrigin;
+  gk::Point imageDestination;
 
-  gk::Point rayImageOrigin;
-  gk::Point rayImageDestination;
-  gk::Point rayWorldOrigin;
-  gk::Point rayWorldDestination;
+  gk::Point worldOrigin;
+  gk::Vector worldRay;
 
   loadScene();
 
@@ -137,28 +138,23 @@ int main(int, char**)
   i = gk::Viewport(outputImageWidth, outputImageHeight);
   vpiInv = (i * p * v).inverse();
 
-  rayImageOrigin.z = 0;
-  rayImageDestination.z = 1;
+  imageOrigin.z = 0;
+  imageDestination.z = 1;
 
   for (y = 0; y < outputImageHeight; ++y)
   {
-    rayImageOrigin.y = y;
-    rayImageDestination.y = y;
+    imageOrigin.y = y;
+    imageDestination.y = y;
 
     for (x = 0; x < outputImageWidth; ++x)
     {
-      rayImageOrigin.x = x;
-      rayImageDestination.x = x;
+      imageOrigin.x = x;
+      imageDestination.x = x;
 
-      rayWorldOrigin = vpiInv(rayImageOrigin);
-      rayWorldDestination = vpiInv(rayImageDestination);
+      worldOrigin = vpiInv(imageOrigin);
+      worldRay = vpiInv(imageDestination) - worldOrigin;
 
-      rayWorldLength = gk::Distance(rayWorldOrigin, rayWorldDestination);
-
-      rayWorld = gk::Ray(rayWorldOrigin, gk::Vector(rayWorldOrigin, rayWorldDestination) / rayWorldLength);
-      rayWorld.tmax = rayWorldLength;
-
-      outputImage->setPixel(x, y, incidentLight(rayWorld));
+      outputImage->setPixel(x, y, incidentLight(worldOrigin, gk::Normalize(worldRay), worldRay.Length()));
     }
   }
 
