@@ -8,9 +8,21 @@
 #include <string>
 #include <cstdio>
 
+//! Global settings
+const int _outputImageWidth = 1024;
+const int _outputImageHeight = 768;
+const char* _outputImageFilename = "out.png";
+
+const int _directLightingSampleCount = 4;
+
+//! Geometry
 gk::Mesh* _mesh;
 std::vector<gk::Vec4> _triangleColors;
+
+//! Lights
 std::vector<uint> _lights;
+std::vector<float> _lightPdf;
+std::vector<float> _lightCdf;
 
 //! Resources
 gk::Mesh* loadMesh(const std::string& filename)
@@ -34,18 +46,50 @@ void loadScene()
 
   float colorDelta;
 
+  uint lightCount;
+
+  float partialLightAreaSum;
+  float totalLightAreaSum;
+
   _mesh = loadMesh("synthese_tp3/scenes/geometry.obj");
 
   triangleCount = (uint)_mesh->triangleCount();
   colorDelta = 0.25f / triangleCount;
+
+  // Triangle colors assignation & Lights processing
+  totalLightAreaSum = 0;
 
   for (i = 0; i < triangleCount; ++i)
   {
     _triangleColors.push_back(gk::Vec4(0.5f + (i * colorDelta), 0.5f + (i * colorDelta), 0, 1));
 
     if (!(_mesh->triangleMaterial(i).emission == gk::Vec4(0, 0, 0, 0)))
+    {
       _lights.push_back(i);
+
+      totalLightAreaSum += _mesh->triangle(i).area();
+    }
   }
+
+  // Light picking pdf & cdf initialization
+  partialLightAreaSum = 0;
+
+  lightCount = _lights.size();
+
+  for (i = 0; i < lightCount; ++i)
+  {
+    partialLightAreaSum += _mesh->triangle(_lights[i]).area();
+
+    _lightPdf.push_back(_mesh->triangle(_lights[i]).area() / totalLightAreaSum);
+    _lightCdf.push_back(partialLightAreaSum / totalLightAreaSum);
+  }
+
+  printf("--------------- Light's PDF ---------------\r\n");
+  for (i = 0; i < lightCount; ++i)
+    printf("Light[%u] PDF = %f\r\n", i, _lightPdf[i]);
+  printf("--------------- Light's CDF ---------------\r\n");
+  for (i = 0; i < lightCount; ++i)
+    printf("Light[%u] CDF = %f\r\n", i, _lightCdf[i]);
 }
 void deleteScene()
 {
@@ -53,26 +97,44 @@ void deleteScene()
 }
 
 //! Raytracing
-void pickLightSources(const int lightSampleCount, std::vector<gk::Point>& points)
+float sampleLightPoint(gk::Point& p, gk::Normal& n)
 {
+  float pdf;
+
+  float u;
+  float v;
+
   uint i;
-  int j;
+  uint light;
 
-  gk::Point p;
+  float su;
+  float sv;
+  gk::PNTriangle pnt;
 
-  const uint lightCount = _lights.size();
+  // Uniform light picking
+  u = (float)rand() / RAND_MAX;
+  v = (float)rand() / RAND_MAX;
 
-  points.clear();
-
-  for (i = 0; i < lightCount; ++i)
+  for (i = 0; i < _lights.size(); ++i)
   {
-    for (j = 0; j < lightSampleCount; ++j)
+    if (u < _lightCdf[i])
     {
-      _mesh->triangle(_lights[i]).sampleUniform((float)rand() / RAND_MAX, (float)rand() / RAND_MAX, p);
+      light = i;
+      pdf = _lightPdf[i];
 
-      points.push_back(p);
+      break;
     }
   }
+
+  // Uniform point picking within the selected light source
+  pnt = _mesh->pntriangle(_lights[light]);
+
+  pdf *= pnt.sampleUniformUV(u, v, su, sv);
+
+  p = pnt.point(su, sv);
+  n = pnt.normal(su, sv);
+
+  return pdf;
 }
 
 bool intersect(const gk::Ray& ray, const gk::Mesh& mesh, gk::Hit& hit)
@@ -129,19 +191,21 @@ gk::Vec4 incidentLight(const gk::Point& p, const gk::Vector& d, const float tmax
   gk::Ray ray;
 
   gk::Hit hit;
-  gk::Point hitPoint;
 
-  std::vector<gk::Point> lights;
-  const int lightSampleCount = 4;
+  gk::Point hitPoint;
+  gk::Normal hitNormal;
 
   uint l;
-  uint lightCount;
+
+  float lightPointPdf;
+  gk::Point lightPoint;
+  gk::Normal lightNormal;
 
   gk::Vector lightOffset;
   gk::Point offsetHitPoint;
   gk::Point offsetLight;
 
-  float lightingFactor;
+  gk::Vec4 lightSum;
 
   ray = gk::Ray(p + d * RAY_EPSILON, d);
   ray.tmax = tmax;
@@ -149,29 +213,30 @@ gk::Vec4 incidentLight(const gk::Point& p, const gk::Vector& d, const float tmax
   if (intersect(ray, *_mesh, hit))
   {
     hitPoint = ray(hit.t);
+    hitNormal = _mesh->pntriangle(hit.object_id).normal(hit.u, hit.v);
 
-    pickLightSources(lightSampleCount, lights);
+    // Eclairage direct
+    lightSum = gk::Vec4(0, 0, 0, 0);
 
-    lightingFactor = 0;
-    lightCount = lights.size();
-
-    for (l = 0; l < lightCount; ++l)
+    for (l = 0; l < _directLightingSampleCount; ++l)
     {
-      lightOffset = gk::Normalize(lights[l] - hitPoint) * RAY_EPSILON;
+      lightPointPdf = sampleLightPoint(lightPoint, lightNormal);
 
-      offsetHitPoint = hitPoint + lightOffset;
-      offsetLight = lights[l] - lightOffset;
+      // lightOffset = gk::Normalize(lights[l] - hitPoint) * RAY_EPSILON;
 
-      if (visibles(offsetHitPoint, offsetLight))
-	++lightingFactor;
+      // offsetLight = lights[l] - lightOffset;
+      // offsetHitPoint = hitPoint + lightOffset;
+
+      // if (visibles(offsetHitPoint, offsetLight))
+      // {
+	
+      // }
     }
 
-    lightingFactor /= lightCount;
-
-    return gk::Vec4(_triangleColors[hit.object_id].x * lightingFactor,
-		    _triangleColors[hit.object_id].y * lightingFactor,
-		    _triangleColors[hit.object_id].z * lightingFactor,
-		    1);
+    // return gk::Vec4(_triangleColors[hit.object_id].x * lightingFactor,
+    // 		    _triangleColors[hit.object_id].y * lightingFactor,
+    // 		    _triangleColors[hit.object_id].z * lightingFactor,
+    // 		    1);
   }
 
   return gk::Vec4(0, 0, 0, 1);
@@ -183,8 +248,6 @@ int main(int, char**)
   int y;
 
   gk::Image* outputImage;
-  const int outputImageWidth = 1024;
-  const int outputImageHeight = 768;
 
   gk::Vector cameraUp;
   gk::Point cameraPosition;
@@ -204,25 +267,25 @@ int main(int, char**)
 
   loadScene();
 
-  outputImage = gk::createImage(outputImageWidth, outputImageHeight);
+  outputImage = gk::createImage(_outputImageWidth, _outputImageHeight);
 
   cameraUp = gk::Vector(0, 1, 0);
   cameraPosition = gk::Point(-250, 750, 500);
 
   v = gk::LookAt(cameraPosition, gk::Point(0, 0, 0), cameraUp);
-  p = gk::Perspective(60, outputImageWidth / outputImageHeight, 1, 4000);
-  i = gk::Viewport(outputImageWidth, outputImageHeight);
+  p = gk::Perspective(60, _outputImageWidth / _outputImageHeight, 1, 4000);
+  i = gk::Viewport(_outputImageWidth, _outputImageHeight);
   vpiInv = (i * p * v).inverse();
 
   imageOrigin.z = 0;
   imageDestination.z = 1;
 
-  for (y = 0; y < outputImageHeight; ++y)
+  for (y = 0; y < _outputImageHeight; ++y)
   {
     imageOrigin.y = y;
     imageDestination.y = y;
 
-    for (x = 0; x < outputImageWidth; ++x)
+    for (x = 0; x < _outputImageWidth; ++x)
     {
       imageOrigin.x = x;
       imageDestination.x = x;
@@ -234,7 +297,7 @@ int main(int, char**)
     }
   }
 
-  gk::ImageIO::writeImage("out.png", outputImage);
+  gk::ImageIO::writeImage(_outputImageFilename, outputImage);
 
   delete outputImage;
   deleteScene();
