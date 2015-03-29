@@ -9,6 +9,8 @@
 #include <cstdio>
 
 //! Global settings
+const char* _inputFilename = "synthese_tp3/scenes/geometry.obj";
+
 const int _outputImageWidth = 1024;
 const int _outputImageHeight = 768;
 const char* _outputImageFilename = "out.png";
@@ -23,6 +25,41 @@ std::vector<gk::Vec4> _triangleColors;
 std::vector<uint> _lights;
 std::vector<float> _lightPdf;
 std::vector<float> _lightCdf;
+
+//! gKit utilities
+gk::Vec4 operator+(const gk::Vec4& v1, const gk::Vec4& v2)
+{
+  return gk::Vec4(v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2], v1[3] + v2[3]);
+}
+gk::Vec4 operator+=(gk::Vec4& v1, const gk::Vec4& v2)
+{
+  v1 = v1 + v2;
+  return v1;
+}
+
+gk::Vec4 operator*(const gk::Vec4& v1, const gk::Vec4& v2)
+{
+  return gk::Vec4(v1[0] * v2[0], v1[1] * v2[1], v1[2] * v2[2], v1[3] * v2[3]);
+}
+gk::Vec4 operator*(const gk::Vec4& v, const float f)
+{
+  return gk::Vec4(v[0] * f, v[1] * f, v[2] * f, v[3] * f);
+}
+gk::Vec4 operator*=(gk::Vec4& v, const float f)
+{
+  v = v * f;
+  return v;
+}
+
+gk::Vec4 operator/(const gk::Vec4& v, const float f)
+{
+  return v * (1.f / f);
+}
+gk::Vec4 operator/=(gk::Vec4& v, const float f)
+{
+  v = v / f;
+  return v;
+}
 
 //! Resources
 gk::Mesh* loadMesh(const std::string& filename)
@@ -51,7 +88,7 @@ void loadScene()
   float partialLightAreaSum;
   float totalLightAreaSum;
 
-  _mesh = loadMesh("synthese_tp3/scenes/geometry.obj");
+  _mesh = loadMesh(_inputFilename);
 
   triangleCount = (uint)_mesh->triangleCount();
   colorDelta = 0.25f / triangleCount;
@@ -96,8 +133,8 @@ void deleteScene()
   delete _mesh;
 }
 
-//! Raytracing
-float sampleLightPoint(gk::Point& p, gk::Normal& n)
+//! Sampling
+float uniformLightsSampling(gk::Point& p, gk::Normal& n, uint& triangleId)
 {
   float pdf;
 
@@ -121,6 +158,7 @@ float sampleLightPoint(gk::Point& p, gk::Normal& n)
     {
       light = i;
       pdf = _lightPdf[i];
+      triangleId = _lights[i];
 
       break;
     }
@@ -132,11 +170,47 @@ float sampleLightPoint(gk::Point& p, gk::Normal& n)
   pdf *= pnt.sampleUniformUV(u, v, su, sv);
 
   p = pnt.point(su, sv);
-  n = pnt.normal(su, sv);
+  n = ((gk::Triangle)pnt).normal();
 
   return pdf;
 }
+float uniformHemisphereSampling(const gk::Vector& n, gk::Vector& d)
+{
+  float r1;
+  float r2;
+  float squaredr2;
 
+  gk::Vector t1;
+  gk::Vector t2;
+  gk::Transform t;
+
+  // Unit aligned hemisphere uniform sampling
+  r1 = (float)rand() / RAND_MAX;
+  r2 = (float)rand() / RAND_MAX;
+
+  squaredr2 = r2 * r2;
+
+  d.x = cos(2 * M_PI * r1) * sqrt(1.f - squaredr2);
+  d.y = r2;
+  d.z = sin(2 * M_PI * r1) * sqrt(1.f - squaredr2);
+
+  // Normal alignement
+  gk::CoordinateSystem(n, &t1, &t2);
+
+  t = gk::Transform
+    (gk::Matrix4x4
+     (t1.x, n.x, t2.x, 0,
+      t1.y, n.y, t2.y, 0,
+      t1.z, n.z, t2.z, 0,
+      0,    0,    0,   1)
+     .getInverse());
+
+  d = t(d);
+
+  return 1.f / (2 * M_PI);
+}
+
+//! Raytracing
 bool intersect(const gk::Ray& ray, const gk::Mesh& mesh, gk::Hit& hit)
 {
   int i;
@@ -194,18 +268,31 @@ gk::Vec4 incidentLight(const gk::Point& p, const gk::Vector& d, const float tmax
 
   gk::Point hitPoint;
   gk::Normal hitNormal;
+  gk::MeshMaterial hitMaterial;
 
   uint l;
 
   float lightPointPdf;
+  uint lightTriangleId;
   gk::Point lightPoint;
   gk::Normal lightNormal;
 
+  gk::Vector lightDirection;
   gk::Vector lightOffset;
   gk::Point offsetHitPoint;
   gk::Point offsetLight;
 
-  gk::Vec4 lightSum;
+  gk::Vector h;
+
+  float cos_h;
+  float cos_nl;
+  float cos_nln;
+
+  gk::Vec4 li;
+  gk::Vec4 brdf;
+
+  gk::Vec4 directLight;
+  gk::Vec4 directLightSum;
 
   ray = gk::Ray(p + d * RAY_EPSILON, d);
   ray.tmax = tmax;
@@ -213,30 +300,47 @@ gk::Vec4 incidentLight(const gk::Point& p, const gk::Vector& d, const float tmax
   if (intersect(ray, *_mesh, hit))
   {
     hitPoint = ray(hit.t);
-    hitNormal = _mesh->pntriangle(hit.object_id).normal(hit.u, hit.v);
+    hitNormal = _mesh->triangle(hit.object_id).normal();
 
-    // Eclairage direct
-    lightSum = gk::Vec4(0, 0, 0, 0);
+    // Direct lighting
+    directLightSum = gk::Vec4(0, 0, 0, 0);
 
     for (l = 0; l < _directLightingSampleCount; ++l)
     {
-      lightPointPdf = sampleLightPoint(lightPoint, lightNormal);
+      lightPointPdf = uniformLightsSampling(lightPoint, lightNormal, lightTriangleId);
 
-      // lightOffset = gk::Normalize(lights[l] - hitPoint) * RAY_EPSILON;
+      lightDirection = gk::Normalize(lightPoint - hitPoint);
+      lightOffset = lightDirection * RAY_EPSILON;
 
-      // offsetLight = lights[l] - lightOffset;
-      // offsetHitPoint = hitPoint + lightOffset;
+      offsetLight = lightPoint - lightOffset;
+      offsetHitPoint = hitPoint + lightOffset;
 
-      // if (visibles(offsetHitPoint, offsetLight))
-      // {
-	
-      // }
+      directLight = gk::Vec4(0, 0, 0, 0);
+
+      if (visibles(offsetHitPoint, offsetLight))
+      {
+	h = gk::Normalize((lightDirection - ray.d) * .5f);
+
+	cos_h = fabs(gk::Dot(hitNormal, h));
+	cos_nl = fabs(gk::Dot(hitNormal, lightDirection));
+	cos_nln = fabs(gk::Dot(lightNormal, lightDirection));
+
+	hitMaterial =  _mesh->triangleMaterial(hit.object_id);
+
+	li = _mesh->triangleMaterial(lightTriangleId).emission;
+	brdf = (hitMaterial.diffuse_color * hitMaterial.kd) + (hitMaterial.specular_color * (hitMaterial.ks * 10 * pow(cos_h, 10) / (2 * M_PI)));
+
+	directLight = li * brdf * cos_nl * cos_nln / (2 * M_PI * pow(gk::Distance(hitPoint, lightPoint), 2) * 0.0025f);
+	directLight /= lightPointPdf;
+      }
+
+      directLightSum += directLight;
     }
 
-    // return gk::Vec4(_triangleColors[hit.object_id].x * lightingFactor,
-    // 		    _triangleColors[hit.object_id].y * lightingFactor,
-    // 		    _triangleColors[hit.object_id].z * lightingFactor,
-    // 		    1);
+    // Indirect lighting
+    
+
+    return gk::Vec4(directLightSum / _directLightingSampleCount);
   }
 
   return gk::Vec4(0, 0, 0, 1);
@@ -262,6 +366,8 @@ int main(int, char**)
 
   gk::Point worldOrigin;
   gk::Vector worldRay;
+
+  gk::Vec4 energy;
 
   srand(time(0));
 
@@ -293,7 +399,10 @@ int main(int, char**)
       worldOrigin = vpiInv(imageOrigin);
       worldRay = vpiInv(imageDestination) - worldOrigin;
 
-      outputImage->setPixel(x, y, incidentLight(worldOrigin, gk::Normalize(worldRay), worldRay.Length()));
+      energy = incidentLight(worldOrigin, gk::Normalize(worldRay), worldRay.Length());
+      energy.a = 1;
+
+      outputImage->setPixel(x, y, energy);
     }
   }
 
